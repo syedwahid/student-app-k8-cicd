@@ -30,15 +30,21 @@ pipeline {
             }
         }
         
-        stage('Build Images') {
+        stage('Build and Load Images') {
             steps {
                 script {
-                    echo "🐳 Building application images..."
+                    echo "🐳 Building and loading application images..."
                     
                     sh """
+                        # Build images
                         docker build -t ${BACKEND_IMAGE}:${GIT_COMMIT_SHORT} app/backend/
                         docker build -t ${FRONTEND_IMAGE}:${GIT_COMMIT_SHORT} app/frontend/
-                        echo "✅ Images built successfully"
+                        
+                        # Load images into Minikube cluster
+                        minikube image load ${BACKEND_IMAGE}:${GIT_COMMIT_SHORT}
+                        minikube image load ${FRONTEND_IMAGE}:${GIT_COMMIT_SHORT}
+                        
+                        echo "✅ Images built and loaded successfully"
                     """
                 }
             }
@@ -50,7 +56,9 @@ pipeline {
                     echo "📦 Deploying to Kubernetes..."
                     
                     sh """
-                        # Update deployments for local images
+                        # Update deployments with correct image names and pull policy
+                        sed -i 's|image:.*student-backend.*|image: ${BACKEND_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/backend/deployment.yaml
+                        sed -i 's|image:.*student-frontend.*|image: ${FRONTEND_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/frontend/deployment.yaml
                         sed -i 's|imagePullPolicy:.*|imagePullPolicy: IfNotPresent|g' k8s/backend/deployment.yaml
                         sed -i 's|imagePullPolicy:.*|imagePullPolicy: IfNotPresent|g' k8s/frontend/deployment.yaml
                         
@@ -58,7 +66,14 @@ pipeline {
                         minikube kubectl -- apply -f k8s/namespace.yaml
                         minikube kubectl -- apply -f k8s/secrets.yaml
                         minikube kubectl -- apply -f k8s/configmap.yaml
+                        
+                        # Deploy MySQL first (it takes longest)
                         minikube kubectl -- apply -f k8s/mysql/
+                        
+                        # Wait a bit for PVC to be created
+                        sleep 10
+                        
+                        # Deploy backend and frontend
                         minikube kubectl -- apply -f k8s/backend/
                         minikube kubectl -- apply -f k8s/frontend/
                         
@@ -68,41 +83,21 @@ pipeline {
             }
         }
         
-        stage('Debug MySQL Issues') {
+        stage('Wait for Services') {
             steps {
                 script {
-                    echo "🔧 Debugging MySQL configuration..."
+                    echo "⏳ Waiting for services to be ready..."
                     
                     sh """
-                        # Check MySQL pod details
-                        echo "📋 MySQL Pod Details:"
-                        minikube kubectl -- describe pod -l app=mysql -n ${KUBE_NAMESPACE} || echo "No MySQL pod found"
+                        # Wait for backend (with longer timeout)
+                        echo "🔄 Waiting for backend..."
+                        minikube kubectl -- wait --for=condition=available deployment/backend -n ${KUBE_NAMESPACE} --timeout=300s || echo "Backend taking longer than expected"
                         
-                        # Check secrets
-                        echo "🔐 Checking secrets:"
-                        minikube kubectl -- get secrets -n ${KUBE_NAMESPACE} || echo "No secrets found"
+                        # Wait for frontend
+                        echo "🔄 Waiting for frontend..."
+                        minikube kubectl -- wait --for=condition=available deployment/frontend -n ${KUBE_NAMESPACE} --timeout=300s || echo "Frontend taking longer than expected"
                         
-                        # Check if secrets are properly configured
-                        echo "🔍 Secret details:"
-                        minikube kubectl -- describe secret mysql-secret -n ${KUBE_NAMESPACE} || echo "mysql-secret not found"
-                    """
-                }
-            }
-        }
-        
-        stage('Wait for Backend and Frontend') {
-            steps {
-                script {
-                    echo "⏳ Waiting for backend and frontend services..."
-                    
-                    sh """
-                        # Wait for backend
-                        minikube kubectl -- rollout status deployment/backend -n ${KUBE_NAMESPACE} --timeout=180s
-                        
-                        # Wait for frontend  
-                        minikube kubectl -- rollout status deployment/frontend -n ${KUBE_NAMESPACE} --timeout=180s
-                        
-                        echo "✅ Backend and frontend ready!"
+                        echo "✅ Core services ready!"
                     """
                 }
             }
@@ -114,7 +109,7 @@ pipeline {
                     echo "🧪 Testing application..."
                     
                     sh """
-                        # Test backend API
+                        # Test backend API with retries
                         echo "🔧 Testing Backend API..."
                         for i in {1..10}; do
                             if minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/backend -- curl -s http://localhost:3000/api/health > /dev/null; then
@@ -180,17 +175,23 @@ pipeline {
                         echo "🌐 Access your application:"
                         minikube service frontend-service -n ${KUBE_NAMESPACE} --url
                         echo ""
-                        echo "Note: MySQL might still be initializing in the background."
-                        echo "The application should work with the backend's in-memory storage."
+                        echo "📊 Final Status:"
+                        minikube kubectl -- get pods -n ${KUBE_NAMESPACE}
                     """
                 } else {
-                    echo "⚠️  Pipeline completed with warnings"
+                    echo "🔍 Debugging information:"
                     sh """
-                        echo "🔍 Final Status:"
-                        minikube kubectl -- get all -n ${KUBE_NAMESPACE}
+                        echo "📋 Pod details:"
+                        minikube kubectl -- get pods -n ${KUBE_NAMESPACE} -o wide
                         echo ""
-                        echo "💡 The application might still be accessible even if MySQL has issues."
-                        echo "   Backend uses in-memory storage as fallback."
+                        echo "📄 Backend logs:"
+                        minikube kubectl -- logs -l app=backend -n ${KUBE_NAMESPACE} --tail=20 || echo "No backend logs"
+                        echo ""
+                        echo "📄 Frontend logs:"
+                        minikube kubectl -- logs -l app=frontend -n ${KUBE_NAMESPACE} --tail=20 || echo "No frontend logs"
+                        echo ""
+                        echo "💡 Try accessing the application anyway:"
+                        minikube service frontend-service -n ${KUBE_NAMESPACE} --url || echo "minikube service frontend-service -n student-app"
                     """
                 }
             }
