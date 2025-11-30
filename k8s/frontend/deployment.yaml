@@ -19,8 +19,8 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: your-dockerhub-username/student-frontend:{{BUILD_VERSION}}  # Will be replaced by Jenkins
-        imagePullPolicy: Never  # Use local images in Minikube
+        image: syedwahid/student-frontend:latest # Will be replaced by Jenkins
+        imagePullPolicy: Always  # Use local images in Minikube
         ports:
         - containerPort: 80
         env:
