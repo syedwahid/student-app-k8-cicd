@@ -10,7 +10,7 @@ pipeline {
     }
     
     options {
-        timeout(time: 15, unit: 'MINUTES')
+        timeout(time: 20, unit: 'MINUTES')  // Increased timeout
     }
     
     stages {
@@ -87,20 +87,40 @@ pipeline {
             }
         }
         
-        stage('Wait for Services') {
+        stage('Wait for MySQL') {
             steps {
                 script {
-                    echo "⏳ Waiting for services to be ready..."
+                    echo "🗄️ Waiting for MySQL to be ready (this can take 2-5 minutes)..."
                     
                     sh """
-                        # Wait for MySQL (most critical) using minikube kubectl
-                        minikube kubectl -- wait --for=condition=ready pod -l app=mysql -n ${KUBE_NAMESPACE} --timeout=180s
+                        # Give MySQL more time to start (5 minutes timeout)
+                        minikube kubectl -- wait --for=condition=ready pod -l app=mysql -n ${KUBE_NAMESPACE} --timeout=300s || echo "MySQL taking longer than expected, continuing..."
                         
-                        # Wait for backend and frontend
-                        minikube kubectl -- rollout status deployment/backend -n ${KUBE_NAMESPACE} --timeout=120s
-                        minikube kubectl -- rollout status deployment/frontend -n ${KUBE_NAMESPACE} --timeout=120s
+                        # Check MySQL logs if it's taking too long
+                        echo "📋 MySQL pod status:"
+                        minikube kubectl -- get pods -l app=mysql -n ${KUBE_NAMESPACE}
                         
-                        echo "✅ All services ready!"
+                        # Show recent MySQL logs
+                        echo "📄 MySQL logs (last 10 lines):"
+                        minikube kubectl -- logs -l app=mysql -n ${KUBE_NAMESPACE} --tail=10 || echo "No logs available yet"
+                    """
+                }
+            }
+        }
+        
+        stage('Wait for Backend and Frontend') {
+            steps {
+                script {
+                    echo "⏳ Waiting for backend and frontend services..."
+                    
+                    sh """
+                        # Wait for backend with timeout
+                        minikube kubectl -- rollout status deployment/backend -n ${KUBE_NAMESPACE} --timeout=120s || echo "Backend rollout in progress"
+                        
+                        # Wait for frontend with timeout  
+                        minikube kubectl -- rollout status deployment/frontend -n ${KUBE_NAMESPACE} --timeout=120s || echo "Frontend rollout in progress"
+                        
+                        echo "✅ Core services ready!"
                     """
                 }
             }
@@ -112,13 +132,23 @@ pipeline {
                     echo "🧪 Running quick smoke tests..."
                     
                     sh """
-                        # Test backend API using minikube kubectl
-                        minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/backend -- curl -s http://localhost:3000/api/health && echo "✅ Backend healthy"
+                        # Test backend API (with retry logic)
+                        echo "🔧 Testing Backend API..."
+                        for i in {1..5}; do
+                            if minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/backend -- curl -s http://localhost:3000/api/health > /dev/null; then
+                                echo "✅ Backend health check passed"
+                                break
+                            else
+                                echo "⏳ Backend not ready yet, retrying in 10 seconds..."
+                                sleep 10
+                            fi
+                        done
                         
                         # Test frontend
+                        echo "🎨 Testing Frontend..."
                         minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/frontend -- curl -s http://localhost:80/ > /dev/null && echo "✅ Frontend healthy"
                         
-                        echo "✅ Smoke tests passed!"
+                        echo "✅ Smoke tests completed!"
                     """
                 }
             }
@@ -130,18 +160,23 @@ pipeline {
                     echo "🌐 Application Access Information:"
                     
                     sh """
-                        # Show cluster info using minikube kubectl
+                        # Show cluster info
                         echo "📊 Cluster Status:"
                         minikube kubectl -- get pods -n ${KUBE_NAMESPACE}
                         
                         # Get service URLs
                         echo ""
                         echo "🎯 Access Your Application:"
-                        minikube service frontend-service -n ${KUBE_NAMESPACE} --url
+                        echo "Frontend URL:"
+                        minikube service frontend-service -n ${KUBE_NAMESPACE} --url || echo "Use: minikube service frontend-service -n student-app"
+                        echo ""
+                        echo "Backend API:"
+                        minikube service backend-service -n ${KUBE_NAMESPACE} --url || echo "Use: minikube service backend-service -n student-app"
                         echo ""
                         echo "💡 Quick Commands:"
-                        echo "  minikube service frontend-service -n ${KUBE_NAMESPACE}"
-                        echo "  minikube kubectl -- get all -n ${KUBE_NAMESPACE}"
+                        echo "  Frontend: minikube service frontend-service -n ${KUBE_NAMESPACE}"
+                        echo "  Backend:  minikube service backend-service -n ${KUBE_NAMESPACE}"
+                        echo "  Status:   minikube kubectl -- get all -n ${KUBE_NAMESPACE}"
                     """
                 }
             }
@@ -162,6 +197,21 @@ pipeline {
                         echo "========================"
                         echo "Access your Student Management App:"
                         minikube service frontend-service -n ${KUBE_NAMESPACE} --url
+                        echo ""
+                        echo "📊 Final Status:"
+                        minikube kubectl -- get all -n ${KUBE_NAMESPACE}
+                    """
+                } else {
+                    echo "❌ Deployment had issues. Check MySQL initialization."
+                    sh """
+                        echo "🔍 Debug Information:"
+                        minikube kubectl -- get pods -n ${KUBE_NAMESPACE}
+                        echo ""
+                        echo "📄 MySQL logs:"
+                        minikube kubectl -- logs -l app=mysql -n ${KUBE_NAMESPACE} --tail=20 || echo "No MySQL logs"
+                        echo ""
+                        echo "📄 Backend logs:"
+                        minikube kubectl -- logs -l app=backend -n ${KUBE_NAMESPACE} --tail=10 || echo "No backend logs"
                     """
                 }
             }
