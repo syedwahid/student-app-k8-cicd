@@ -22,15 +22,20 @@ spec:
         - name: MYSQL_ROOT_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: mysql-secrets
-              key: mysql-root-password
+              name: mysql-secret
+              key: root-password
+        - name: MYSQL_DATABASE
+          value: "student_db"
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: username
         - name: MYSQL_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: mysql-secrets
-              key: mysql-password
-        - name: MYSQL_DATABASE
-          value: "student_db"
+              name: mysql-secret
+              key: password
         ports:
         - containerPort: 3306
         volumeMounts:
@@ -39,11 +44,8 @@ spec:
         - name: mysql-initdb
           mountPath: /docker-entrypoint-initdb.d
         livenessProbe:
-          exec:
-            command:
-            - sh
-            - -c
-            - "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD}"
+          tcpSocket:
+            port: 3306
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
@@ -51,7 +53,7 @@ spec:
             command:
             - sh
             - -c
-            - "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD}"
+            - "mysql -h 127.0.0.1 -u${MYSQL_USER} -p${MYSQL_PASSWORD} -e 'SELECT 1'"
           initialDelaySeconds: 5
           periodSeconds: 5
       volumes:
@@ -61,30 +63,3 @@ spec:
       - name: mysql-initdb
         configMap:
           name: mysql-initdb-config
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mysql-initdb-config
-  namespace: student-app
-data:
-  init.sql: |
-    CREATE DATABASE IF NOT EXISTS student_db;
-    USE student_db;
-
-    CREATE TABLE IF NOT EXISTS students (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        age INT NOT NULL,
-        grade VARCHAR(10) NOT NULL,
-        email VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    );
-
-    INSERT IGNORE INTO students (name, age, grade, email) VALUES
-    ('John Doe', 20, 'A', 'john@school.com'),
-    ('Jane Smith', 21, 'B', 'jane@school.com'),
-    ('Mike Johnson', 19, 'A', 'mike@school.com'),
-    ('Sarah Wilson', 22, 'C', 'sarah@school.com'),
-    ('Tom Brown', 18, 'B', 'tom@school.com');
