@@ -20,11 +20,24 @@ pipeline {
                     echo "🚀 Starting lightweight Minikube..."
                     
                     sh '''
-                        minikube stop 2>/dev/null || true
-                        minikube delete 2>/dev/null || true
-                        minikube start --driver=docker --cpus=2 --memory=2g --disk-size=5gb
+                        # Only delete if we want fresh start - comment out for debugging
+                        # minikube stop 2>/dev/null || true
+                        # minikube delete 2>/dev/null || true
+                        
+                        # Start minikube if not running
+                        if ! minikube status 2>/dev/null | grep -q "Running"; then
+                            echo "Starting Minikube cluster..."
+                            minikube start --driver=docker --cpus=2 --memory=2g --disk-size=5gb
+                        else
+                            echo "Minikube is already running"
+                        fi
+                        
                         eval $(minikube docker-env)
                         echo "✅ Minikube ready!"
+                        
+                        # Verify cluster is accessible
+                        minikube status
+                        echo "Cluster IP: $(minikube ip)"
                     '''
                 }
             }
@@ -45,6 +58,10 @@ pipeline {
                         minikube image load ${FRONTEND_IMAGE}:${GIT_COMMIT_SHORT}
                         
                         echo "✅ Images built and loaded successfully"
+                        
+                        # Verify images are loaded
+                        echo "=== Loaded Images in Minikube ==="
+                        minikube image ls | grep ${DOCKER_REGISTRY} || echo "No images found with registry prefix"
                     """
                 }
             }
@@ -71,7 +88,8 @@ pipeline {
                         minikube kubectl -- apply -f k8s/mysql/
                         
                         # Wait a bit for PVC to be created
-                        sleep 10
+                        echo "⏳ Waiting for PVC to be created..."
+                        sleep 15
                         
                         # Deploy backend and frontend
                         minikube kubectl -- apply -f k8s/backend/
@@ -89,6 +107,10 @@ pipeline {
                     echo "⏳ Waiting for services to be ready..."
                     
                     sh """
+                        # Wait for MySQL to be ready
+                        echo "🔄 Waiting for MySQL..."
+                        minikube kubectl -- wait --for=condition=ready pod -l app=mysql -n ${KUBE_NAMESPACE} --timeout=180s || echo "MySQL taking longer than expected"
+                        
                         # Wait for backend (with longer timeout)
                         echo "🔄 Waiting for backend..."
                         minikube kubectl -- wait --for=condition=available deployment/backend -n ${KUBE_NAMESPACE} --timeout=300s || echo "Backend taking longer than expected"
@@ -103,17 +125,44 @@ pipeline {
             }
         }
         
-        stage('Test Application') {
+        stage('Debug and Verify Deployment') {
             steps {
                 script {
-                    echo "🧪 Testing application..."
+                    echo "🔧 Running deployment verification and debugging..."
+                    
+                    sh """
+                        echo "=== Cluster Status ==="
+                        minikube status
+                        
+                        echo "=== All Resources in Namespace ==="
+                        minikube kubectl -- get all -n ${KUBE_NAMESPACE}
+                        
+                        echo "=== Pod Details ==="
+                        minikube kubectl -- get pods -n ${KUBE_NAMESPACE} -o wide
+                        
+                        echo "=== Service Details ==="
+                        minikube kubectl -- get services -n ${KUBE_NAMESPACE}
+                        
+                        echo "=== Checking Pod Status ==="
+                        minikube kubectl -- get pods -n ${KUBE_NAMESPACE} -o jsonpath='{range .items[*]}{.metadata.name}{"\\t"}{.status.phase}{"\\t"}{.status.podIP}{"\\n"}{end}'
+                    """
+                }
+            }
+        }
+        
+        stage('Test Application Health') {
+            steps {
+                script {
+                    echo "🧪 Testing application health..."
                     
                     sh """
                         # Test backend API with retries
-                        echo "🔧 Testing Backend API..."
+                        echo "🔧 Testing Backend API Health..."
+                        BACKEND_HEALTHY=false
                         for i in 1 2 3 4 5 6 7 8 9 10; do
                             if minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/backend -- curl -s http://localhost:3000/api/health > /dev/null; then
-                                echo "✅ Backend health check passed"
+                                echo "✅ Backend health check passed on attempt \$i"
+                                BACKEND_HEALTHY=true
                                 break
                             else
                                 echo "⏳ Backend not ready yet, retrying in 10 seconds... (attempt \$i/10)"
@@ -121,11 +170,60 @@ pipeline {
                             fi
                         done
                         
+                        if [ "\$BACKEND_HEALTHY" = "false" ]; then
+                            echo "❌ Backend health check failed after 10 attempts"
+                            echo "=== Backend Logs ==="
+                            minikube kubectl -- logs -n ${KUBE_NAMESPACE} deployment/backend --tail=20
+                            exit 1
+                        fi
+                        
+                        # Test backend service through NodePort
+                        echo "🔧 Testing Backend Service (NodePort)..."
+                        BACKEND_URL=\$(minikube service backend-service -n ${KUBE_NAMESPACE} --url)
+                        echo "Backend URL: \$BACKEND_URL"
+                        curl -s \$BACKEND_URL/api/health && echo "✅ Backend service accessible via NodePort"
+                        
                         # Test frontend
                         echo "🎨 Testing Frontend..."
-                        minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/frontend -- curl -s http://localhost:80/ > /dev/null && echo "✅ Frontend healthy"
+                        minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/frontend -- curl -s http://localhost:80/ > /dev/null && echo "✅ Frontend container healthy"
                         
-                        echo "✅ Application tests completed!"
+                        # Test frontend service
+                        echo "🔧 Testing Frontend Service..."
+                        FRONTEND_URL=\$(minikube service frontend-service -n ${KUBE_NAMESPACE} --url)
+                        echo "Frontend URL: \$FRONTEND_URL"
+                        curl -s \$FRONTEND_URL | head -5 && echo "✅ Frontend service accessible"
+                        
+                        echo "✅ All application health tests completed!"
+                    """
+                }
+            }
+        }
+        
+        stage('Debug Application Internals') {
+            steps {
+                script {
+                    echo "🔍 Debugging application internals..."
+                    
+                    sh """
+                        echo "=== Backend Logs (last 20 lines) ==="
+                        minikube kubectl -- logs -n ${KUBE_NAMESPACE} deployment/backend --tail=20 || echo "No backend logs available"
+                        
+                        echo "=== Frontend Logs (last 20 lines) ==="
+                        minikube kubectl -- logs -n ${KUBE_NAMESPACE} deployment/frontend --tail=20 || echo "No frontend logs available"
+                        
+                        echo "=== MySQL Logs (last 10 lines) ==="
+                        minikube kubectl -- logs -n ${KUBE_NAMESPACE} deployment/mysql --tail=10 || echo "No MySQL logs available"
+                        
+                        echo "=== Backend Container Details ==="
+                        minikube kubectl -- describe pod -l app=backend -n ${KUBE_NAMESPACE} | grep -A 10 "Image:" || echo "Could not describe backend pod"
+                        
+                        echo "=== Testing Backend API Endpoints ==="
+                        BACKEND_URL=\$(minikube service backend-service -n ${KUBE_NAMESPACE} --url)
+                        echo "Testing GET /api/students..."
+                        curl -s \$BACKEND_URL/api/students | head -2 && echo "✅ Backend API responding"
+                        
+                        echo "=== Frontend Content Check ==="
+                        minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/frontend -- cat /usr/share/nginx/html/index.html | head -5 && echo "✅ Frontend content available"
                     """
                 }
             }
@@ -138,20 +236,55 @@ pipeline {
                     
                     sh """
                         # Show all resources
-                        echo "📊 All Resources:"
+                        echo "📊 Final Resource Status:"
                         minikube kubectl -- get all -n ${KUBE_NAMESPACE}
                         
                         # Get service URLs
                         echo ""
                         echo "🎯 Access URLs:"
                         echo "Frontend:"
-                        minikube service frontend-service -n ${KUBE_NAMESPACE} --url
+                        FRONTEND_URL=\$(minikube service frontend-service -n ${KUBE_NAMESPACE} --url)
+                        echo \$FRONTEND_URL
+                        
                         echo ""
                         echo "Backend API:"
-                        minikube service backend-service -n ${KUBE_NAMESPACE} --url
+                        BACKEND_URL=\$(minikube service backend-service -n ${KUBE_NAMESPACE} --url)
+                        echo \$BACKEND_URL
+                        
                         echo ""
-                        echo "💡 Quick Access:"
-                        echo "  minikube service frontend-service -n ${KUBE_NAMESPACE}"
+                        echo "💡 Quick Access Commands:"
+                        echo "  Frontend:  minikube service frontend-service -n ${KUBE_NAMESPACE}"
+                        echo "  Backend:   minikube service backend-service -n ${KUBE_NAMESPACE}"
+                        echo "  Pods:      minikube kubectl -- get pods -n ${KUBE_NAMESPACE}"
+                        echo "  Logs:      minikube kubectl -- logs -n ${KUBE_NAMESPACE} deployment/backend -f"
+                        
+                        echo ""
+                        echo "🔧 Debugging Commands:"
+                        echo "  Check cluster: minikube status"
+                        echo "  Cluster IP:    minikube ip"
+                        echo "  Shell access:  minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/backend -it -- sh"
+                    """
+                }
+            }
+        }
+        
+        stage('Keep Cluster for Debugging') {
+            steps {
+                script {
+                    echo "🔧 Preserving Minikube cluster for further debugging..."
+                    
+                    sh """
+                        echo "✅ Minikube cluster is preserved and running"
+                        echo "📝 Cluster Info:"
+                        minikube status
+                        echo "🏠 Cluster IP: \$(minikube ip)"
+                        echo ""
+                        echo "To access the application later:"
+                        echo "1. Ensure minikube is running: minikube status"
+                        echo "2. If not, start it: minikube start"
+                        echo "3. Access frontend: minikube service frontend-service -n ${KUBE_NAMESPACE}"
+                        echo ""
+                        echo "To clean up later: minikube stop || minikube delete"
                     """
                 }
             }
@@ -175,23 +308,32 @@ pipeline {
                         echo "🌐 Access your application:"
                         minikube service frontend-service -n ${KUBE_NAMESPACE} --url
                         echo ""
-                        echo "📊 Final Status:"
+                        echo "📊 Final Pod Status:"
                         minikube kubectl -- get pods -n ${KUBE_NAMESPACE}
+                        echo ""
+                        echo "💡 The Minikube cluster is preserved for debugging."
+                        echo "   Run 'minikube stop' when you're done testing."
                     """
                 } else {
-                    echo "🔍 Debugging information:"
+                    echo "🔍 Debugging information for failed build:"
                     sh """
                         echo "📋 Pod details:"
-                        minikube kubectl -- get pods -n ${KUBE_NAMESPACE} -o wide
+                        minikube kubectl -- get pods -n ${KUBE_NAMESPACE} -o wide || echo "Could not get pods"
                         echo ""
                         echo "📄 Backend logs:"
-                        minikube kubectl -- logs -l app=backend -n ${KUBE_NAMESPACE} --tail=20 || echo "No backend logs"
+                        minikube kubectl -- logs -l app=backend -n ${KUBE_NAMESPACE} --tail=30 || echo "No backend logs"
                         echo ""
                         echo "📄 Frontend logs:"
-                        minikube kubectl -- logs -l app=frontend -n ${KUBE_NAMESPACE} --tail=20 || echo "No frontend logs"
+                        minikube kubectl -- logs -l app=frontend -n ${KUBE_NAMESPACE} --tail=30 || echo "No frontend logs"
                         echo ""
-                        echo "💡 Try accessing the application anyway:"
-                        minikube service frontend-service -n ${KUBE_NAMESPACE} --url || echo "minikube service frontend-service -n student-app"
+                        echo "📄 MySQL logs:"
+                        minikube kubectl -- logs -l app=mysql -n ${KUBE_NAMESPACE} --tail=20 || echo "No MySQL logs"
+                        echo ""
+                        echo "🔧 Cluster status:"
+                        minikube status || echo "Minikube not available"
+                        echo ""
+                        echo "💡 The cluster is preserved for manual debugging."
+                        echo "   Investigate the issues and run 'minikube delete' to clean up."
                     """
                 }
             }
