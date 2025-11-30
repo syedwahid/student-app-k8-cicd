@@ -19,29 +19,29 @@ pipeline {
                 script {
                     echo "🚀 Starting lightweight Minikube (1-2 minutes)..."
                     
-                    sh """
+                    sh '''
                         # Stop and clean any existing minikube
                         minikube stop 2>/dev/null || echo "No minikube to stop"
                         minikube delete 2>/dev/null || echo "No minikube to delete"
                         
                         # Start optimized lightweight minikube
-                        minikube start \\
-                          --driver=docker \\
-                          --container-runtime=containerd \\
-                          --disk-size=5gb \\
-                          --cpus=1 \\
-                          --memory=2g \\
-                          --preload=false \\
-                          --extra-config=kubelet.cgroup-driver=systemd \\
-                          --force-systemd=true \\
+                        minikube start \
+                          --driver=docker \
+                          --container-runtime=containerd \
+                          --disk-size=5gb \
+                          --cpus=1 \
+                          --memory=2g \
+                          --preload=false \
+                          --extra-config=kubelet.cgroup-driver=systemd \
+                          --force-systemd=true \
                           --wait=all
                         
                         # Set Docker environment
-                        eval \\$(minikube docker-env)
+                        eval $(minikube docker-env)
                         
                         echo "✅ Lightweight Minikube ready!"
                         minikube status
-                    """
+                    '''
                 }
             }
         }
@@ -137,7 +137,7 @@ pipeline {
                         # Get service URLs
                         echo ""
                         echo "🎯 Access Your Application:"
-                        echo "Frontend URL: \$(minikube service frontend-service -n ${KUBE_NAMESPACE} --url)"
+                        minikube service frontend-service -n ${KUBE_NAMESPACE} --url
                         echo ""
                         echo "💡 Quick Commands:"
                         echo "  minikube service frontend-service -n ${KUBE_NAMESPACE}"
