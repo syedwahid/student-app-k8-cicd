@@ -73,13 +73,13 @@ pipeline {
                         sed -i 's|imagePullPolicy:.*|imagePullPolicy: IfNotPresent|g' k8s/backend/deployment.yaml
                         sed -i 's|imagePullPolicy:.*|imagePullPolicy: IfNotPresent|g' k8s/frontend/deployment.yaml
                         
-                        # Apply all configurations
-                        kubectl apply -f k8s/namespace.yaml
-                        kubectl apply -f k8s/secrets.yaml
-                        kubectl apply -f k8s/configmap.yaml
-                        kubectl apply -f k8s/mysql/
-                        kubectl apply -f k8s/backend/
-                        kubectl apply -f k8s/frontend/
+                        # Use minikube kubectl instead of system kubectl
+                        minikube kubectl -- apply -f k8s/namespace.yaml
+                        minikube kubectl -- apply -f k8s/secrets.yaml
+                        minikube kubectl -- apply -f k8s/configmap.yaml
+                        minikube kubectl -- apply -f k8s/mysql/
+                        minikube kubectl -- apply -f k8s/backend/
+                        minikube kubectl -- apply -f k8s/frontend/
                         
                         echo "✅ Application deployed!"
                     """
@@ -93,12 +93,12 @@ pipeline {
                     echo "⏳ Waiting for services to be ready..."
                     
                     sh """
-                        # Wait for MySQL (most critical)
-                        kubectl wait --for=condition=ready pod -l app=mysql -n ${KUBE_NAMESPACE} --timeout=180s
+                        # Wait for MySQL (most critical) using minikube kubectl
+                        minikube kubectl -- wait --for=condition=ready pod -l app=mysql -n ${KUBE_NAMESPACE} --timeout=180s
                         
                         # Wait for backend and frontend
-                        kubectl rollout status deployment/backend -n ${KUBE_NAMESPACE} --timeout=120s
-                        kubectl rollout status deployment/frontend -n ${KUBE_NAMESPACE} --timeout=120s
+                        minikube kubectl -- rollout status deployment/backend -n ${KUBE_NAMESPACE} --timeout=120s
+                        minikube kubectl -- rollout status deployment/frontend -n ${KUBE_NAMESPACE} --timeout=120s
                         
                         echo "✅ All services ready!"
                     """
@@ -112,11 +112,11 @@ pipeline {
                     echo "🧪 Running quick smoke tests..."
                     
                     sh """
-                        # Test backend API
-                        kubectl exec -n ${KUBE_NAMESPACE} deployment/backend -- curl -s http://localhost:3000/api/health && echo "✅ Backend healthy"
+                        # Test backend API using minikube kubectl
+                        minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/backend -- curl -s http://localhost:3000/api/health && echo "✅ Backend healthy"
                         
                         # Test frontend
-                        kubectl exec -n ${KUBE_NAMESPACE} deployment/frontend -- curl -s http://localhost:80/ > /dev/null && echo "✅ Frontend healthy"
+                        minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/frontend -- curl -s http://localhost:80/ > /dev/null && echo "✅ Frontend healthy"
                         
                         echo "✅ Smoke tests passed!"
                     """
@@ -130,9 +130,9 @@ pipeline {
                     echo "🌐 Application Access Information:"
                     
                     sh """
-                        # Show cluster info
+                        # Show cluster info using minikube kubectl
                         echo "📊 Cluster Status:"
-                        kubectl get pods -n ${KUBE_NAMESPACE}
+                        minikube kubectl -- get pods -n ${KUBE_NAMESPACE}
                         
                         # Get service URLs
                         echo ""
@@ -141,7 +141,7 @@ pipeline {
                         echo ""
                         echo "💡 Quick Commands:"
                         echo "  minikube service frontend-service -n ${KUBE_NAMESPACE}"
-                        echo "  kubectl get all -n ${KUBE_NAMESPACE}"
+                        echo "  minikube kubectl -- get all -n ${KUBE_NAMESPACE}"
                     """
                 }
             }
