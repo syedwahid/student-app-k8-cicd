@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Management System - Kubernetes</title>
+    <link rel="stylesheet" href="styles.css">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+</head>
+<body>
+    <div class="k8s-status" id="k8s-status">K8s: Online</div>
+    
+    <div class="container">
+        <header>
+            <h1>🎓 Student Management System</h1>
+            <p>Kubernetes Deployment with Auto-scaling & Self-healing</p>
+        </header>
+        
+        <div class="summary">
+            <div class="card">
+                <h3 id="total-students">0</h3>
+                <p>Total Students</p>
+            </div>
+            <div class="card">
+                <h3 id="grade-a">0</h3>
+                <p>Grade A Students</p>
+            </div>
+            <div class="card">
+                <h3 id="avg-age">0</h3>
+                <p>Average Age</p>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <input type="text" class="search-box" placeholder="🔍 Search students by name, email, or grade..." id="search-input">
+            <button class="btn btn-primary" id="add-student-btn">
+                ➕ Add New Student
+            </button>
+        </div>
+        
+        <div class="loading" id="loading">Loading students...</div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Age</th>
+                    <th>Grade</th>
+                    <th>Email</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="student-table-body">
+                <!-- Student data will be populated here -->
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Add/Edit Student Modal -->
+    <div class="modal" id="student-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Add New Student</h2>
+                <button class="close-btn" id="close-modal">&times;</button>
+            </div>
+            <form id="student-form">
+                <input type="hidden" id="student-id">
+                <div class="form-group">
+                    <label for="name">Full Name</label>
+                    <input type="text" class="form-control" id="name" placeholder="Enter student's full name" required>
+                </div>
+                <div class="form-group">
+                    <label for="age">Age</label>
+                    <input type="number" class="form-control" id="age" min="16" max="30" placeholder="Enter age (16-30)" required>
+                </div>
+                <div class="form-group">
+                    <label for="grade">Grade</label>
+                    <select class="form-control" id="grade" required>
+                        <option value="">Select Grade</option>
+                        <option value="A">A - Excellent</option>
+                        <option value="B">B - Good</option>
+                        <option value="C">C - Average</option>
+                        <option value="D">D - Below Average</option>
+                        <option value="F">F - Fail</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" class="form-control" id="email" placeholder="Enter student's email" required>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn" id="cancel-btn">Cancel</button>
+                    <button type="submit" class="btn btn-success" id="save-btn">💾 Save Student</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Confirmation Modal -->
+    <div class="modal" id="confirm-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⚠️ Confirm Deletion</h2>
+                <button class="close-btn" id="close-confirm-modal">&times;</button>
+            </div>
+            <p>Are you sure you want to delete this student record? This action cannot be undone.</p>
+            <div class="form-actions">
+                <button type="button" class="btn" id="cancel-delete-btn">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete-btn">🗑️ Delete</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast Notification -->
+    <div class="toast" id="toast"></div>
+    
+    <script src="app.js?v=2"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: student-app
+data:
+  API_BASE_URL: "http://backend-service:3000"
