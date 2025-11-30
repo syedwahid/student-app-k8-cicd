@@ -24,12 +24,12 @@ pipeline {
                         minikube stop 2>/dev/null || echo "No minikube to stop"
                         minikube delete 2>/dev/null || echo "No minikube to delete"
                         
-                        # Start optimized lightweight minikube
+                        # Start optimized lightweight minikube (2 CPUs minimum)
                         minikube start \
                           --driver=docker \
                           --container-runtime=containerd \
                           --disk-size=5gb \
-                          --cpus=1 \
+                          --cpus=2 \
                           --memory=2g \
                           --preload=false \
                           --extra-config=kubelet.cgroup-driver=systemd \
