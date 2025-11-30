@@ -111,12 +111,12 @@ pipeline {
                     sh """
                         # Test backend API with retries
                         echo "🔧 Testing Backend API..."
-                        for i in {1..10}; do
+                        for i in 1 2 3 4 5 6 7 8 9 10; do
                             if minikube kubectl -- exec -n ${KUBE_NAMESPACE} deployment/backend -- curl -s http://localhost:3000/api/health > /dev/null; then
                                 echo "✅ Backend health check passed"
                                 break
                             else
-                                echo "⏳ Backend not ready yet, retrying in 10 seconds... (attempt $i/10)"
+                                echo "⏳ Backend not ready yet, retrying in 10 seconds... (attempt \$i/10)"
                                 sleep 10
                             fi
                         done
