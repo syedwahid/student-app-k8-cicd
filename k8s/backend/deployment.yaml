@@ -1,64 +1,70 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend
+  name: backend-deployment
   namespace: student-app
   labels:
     app: backend
-    version: "latest"
+    tier: api
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: backend
+      tier: api
   template:
     metadata:
       labels:
         app: backend
-        version: "latest"
+        tier: api
+        version: "v1.0.0"  # Will be updated by Jenkins
     spec:
       containers:
       - name: backend
-        image: syedwahid/student-backend:latest  # Will be replaced by Jenkins
-        imagePullPolicy: Always  # Use local images in Minikube
+        image: student-backend:latest  # Will be replaced by Jenkins
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
         env:
-        - name: MYSQL_HOST
+        - name: NODE_ENV
+          value: "production"
+        - name: DB_HOST
           value: "mysql-service"
-        - name: MYSQL_USER
+        - name: DB_USER
           valueFrom:
             secretKeyRef:
               name: mysql-secret
               key: username
-        - name: MYSQL_PASSWORD
+        - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:
               name: mysql-secret
               key: password
-        - name: MYSQL_DATABASE
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: database
-        - name: PORT
-          value: "3000"
-        livenessProbe:
-          httpGet:
-            path: /api/health
-            port: 3000
-          initialDelaySeconds: 30
-          periodSeconds: 10
+        - name: DB_NAME
+          value: "student_db"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
         readinessProbe:
           httpGet:
             path: /api/health
             port: 3000
-          initialDelaySeconds: 5
+            scheme: HTTP
+          initialDelaySeconds: 10
           periodSeconds: 5
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        livenessProbe:
+          httpGet:
+            path: /api/health  
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3

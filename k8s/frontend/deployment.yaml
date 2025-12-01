@@ -1,47 +1,45 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: frontend
+  name: frontend-deployment
   namespace: student-app
   labels:
     app: frontend
-    version: "latest"
+    tier: ui
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: frontend
+      tier: ui
   template:
     metadata:
       labels:
         app: frontend
-        version: "latest"
+        tier: ui
+        version: "v1.0.0"  # Will be updated by Jenkins
     spec:
       containers:
       - name: frontend
-        image: syedwahid/student-frontend:latest # Will be replaced by Jenkins
-        imagePullPolicy: Always  # Use local images in Minikube
+        image: student-frontend:latest  # Will be replaced by Jenkins
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
         env:
-        - name: API_BASE_URL
+        - name: API_URL
           value: "http://backend-service:3000"
+        - name: NODE_ENV
+          value: "production"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
         livenessProbe:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 15
+          initialDelaySeconds: 10
           periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 5
-          periodSeconds: 5
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "50m"
-          limits:
-            memory: "128Mi"
-            cpu: "100m"

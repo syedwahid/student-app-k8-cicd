@@ -7,7 +7,8 @@ spec:
   selector:
     app: frontend
   ports:
-  - port: 80
-    targetPort: 80
-    nodePort: 31349  # Keep existing node port for Minikube access
-  type: LoadBalancer
+    - name: http
+      port: 80
+      targetPort: 80
+      nodePort: 30080  # Changed to a more standard port
+  type: NodePort

@@ -1,104 +1,88 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+require('dotenv').config();
+
+const studentRoutes = require('./routes/students');
+
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
-console.log('🚀 Starting Student Management Backend...');
+// Security middleware
+app.use(helmet());
 
-// Middleware
-app.use(cors());
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+});
+app.use(limiter);
+
+// CORS middleware
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true
+}));
+
+// Body parsing middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// In-memory storage for demo
-let students = [
-    { id: 1, name: 'John Doe', age: 20, grade: 'A', email: 'john@school.com' },
-    { id: 2, name: 'Jane Smith', age: 21, grade: 'B', email: 'jane@school.com' },
-    { id: 3, name: 'Mike Johnson', age: 19, grade: 'A', email: 'mike@school.com' },
-    { id: 4, name: 'Sarah Wilson', age: 22, grade: 'C', email: 'sarah@school.com' },
-    { id: 5, name: 'Tom Brown', age: 18, grade: 'B', email: 'tom@school.com' }
-];
+// Database connection
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/student_management', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log('✅ Connected to MongoDB'))
+.catch(err => console.error('❌ MongoDB connection error:', err));
 
-let nextId = 6;
+// Routes
+app.use('/api/students', studentRoutes);
 
-// Health check
+// Health check endpoint
 app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'OK', 
-        message: 'Backend is working!',
-        timestamp: new Date().toISOString()
-    });
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
+  });
 });
 
-// Get all students
-app.get('/api/students', (req, res) => {
-    res.json(students);
-});
-
-// Get student by ID
-app.get('/api/students/:id', (req, res) => {
-    const id = parseInt(req.params.id);
-    const student = students.find(s => s.id === id);
-    if (!student) {
-        return res.status(404).json({ error: 'Student not found' });
+// Welcome endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Welcome to Student Management System API',
+    version: '1.0.0',
+    endpoints: {
+      students: '/api/students',
+      statistics: '/api/students/stats/summary',
+      health: '/api/health'
     }
-    res.json(student);
+  });
 });
 
-// Create student
-app.post('/api/students', (req, res) => {
-    const { name, age, grade, email } = req.body;
-    
-    if (!name || !age || !grade || !email) {
-        return res.status(400).json({ error: 'All fields are required' });
-    }
-    
-    const newStudent = {
-        id: nextId++,
-        name,
-        age: parseInt(age),
-        grade,
-        email
-    };
-    
-    students.push(newStudent);
-    res.status(201).json(newStudent);
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('🔥 Error:', err.stack);
+  res.status(500).json({ 
+    success: false, 
+    message: 'Something went wrong!',
+    error: process.env.NODE_ENV === 'production' ? {} : err.message
+  });
 });
 
-// Update student
-app.put('/api/students/:id', (req, res) => {
-    const id = parseInt(req.params.id);
-    const { name, age, grade, email } = req.body;
-    
-    if (!name || !age || !grade || !email) {
-        return res.status(400).json({ error: 'All fields are required' });
-    }
-    
-    const studentIndex = students.findIndex(s => s.id === id);
-    if (studentIndex === -1) {
-        return res.status(404).json({ error: 'Student not found' });
-    }
-    
-    students[studentIndex] = { id, name, age: parseInt(age), grade, email };
-    res.json(students[studentIndex]);
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ 
+    success: false, 
+    message: 'Route not found' 
+  });
 });
 
-// Delete student
-app.delete('/api/students/:id', (req, res) => {
-    const id = parseInt(req.params.id);
-    const studentIndex = students.findIndex(s => s.id === id);
-    
-    if (studentIndex === -1) {
-        return res.status(404).json({ error: 'Student not found' });
-    }
-    
-    const deletedStudent = students.splice(studentIndex, 1)[0];
-    res.json({ message: 'Student deleted successfully', student: deletedStudent });
-});
-
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Backend server running on port ${PORT}`);
-    console.log(`✅ Health: http://localhost:${PORT}/api/health`);
-    console.log(`✅ Students: http://localhost:${PORT}/api/students`);
+app.listen(PORT, () => {
+  console.log(`🚀 Server is running on port ${PORT}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔗 API Base URL: http://localhost:${PORT}`);
 });
